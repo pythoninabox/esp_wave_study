@@ -1,0 +1,8 @@
+{
+    "cmake.configureOnOpen": false,
+    "editor.formatOnSave": true,
+    "files.associations": {
+        "chrono": "c",
+        "algorithm": "c"
+    }
+}
