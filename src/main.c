@@ -1,4 +1,6 @@
+#include "driver/adc.h"
 #include "driver/i2s.h"
+#include "esp_adc_cal.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -10,15 +12,24 @@
 #define WAVE_FREQ_HZ (184)
 #define MAXVOL_INT (12000)
 #define PI (3.14159265)
-#define I2S_BCK_IO (GPIO_NUM_5) //(GPIO_NUM_26)
-#define I2S_WS_IO (GPIO_NUM_25) //(GPIO_NUM_25)
-#define I2S_DO_IO (GPIO_NUM_26) //(GPIO_NUM_22)
+#define I2S_BCK_IO (GPIO_NUM_5)
+#define I2S_WS_IO (GPIO_NUM_25)
+#define I2S_DO_IO (GPIO_NUM_26)
 #define I2S_DI_IO (-1)
 
 #define SAMPLE_PER_CYCLE (SAMPLE_RATE / WAVE_FREQ_HZ)
 #define BUFFER_NUM (8)
 #define DELAY_MS (5)
-#define SEQ_LENGTH (1)
+#define SEQ_LENGTH (3)
+
+#define ADC1_POT ADC1_CHANNEL_6
+#define ADC_ATTEN ADC_ATTEN_DB_11
+#define DEFAULT_VREF 1100
+#define NR_OF_SAMPLES 64
+
+static const adc_unit_t unit = ADC_UNIT_1;
+static esp_adc_cal_characteristics_t* adc_chars;
+static const adc_bits_width_t width = ADC_WIDTH_BIT_12;
 
 int midi_to_cycle(int m);
 
@@ -26,10 +37,27 @@ int midi_to_cycle(int m);
 static uint16_t* samples_data = NULL;
 static int wavesize = SAMPLE_PER_CYCLE;
 static int temp_wavesize = 0;
-static int sequence[] = { 50 };
+static int sequence[] = { 50, 200, 3000 };
+static int speed = 1000;
 
 size_t i2s_bytes_write = 0;
 // int sequence[4] = { 48, 60, 72, 84 };
+
+static void check_efuse(void)
+{
+    // Check if TP is burned into eFuse
+    if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_TP) == ESP_OK) {
+        printf("eFuse Two Point: Supported\n");
+    } else {
+        printf("eFuse Two Point: NOT supported\n");
+    }
+    // Check Vref is burned into eFuse
+    if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_VREF) == ESP_OK) {
+        printf("eFuse Vref: Supported\n");
+    } else {
+        printf("eFuse Vref: NOT supported\n");
+    }
+}
 
 void setup_waves(int d)
 {
@@ -68,19 +96,11 @@ static void setup_triangle_sine_waves(int bits){}
 
 void i2s_setup()
 {
-    // for 36Khz sample rates, we create 100Hz sine wave, every cycle need 36000/100 = 360 samples (4-bytes or 8-bytes each sample)
-    // depend on bits_per_sample
-    // using 6 buffers, we need 60-samples per buffer
-    // if 2-channels, 16-bit each channel, total buffer is 360*4 = 1440 bytes
-    // if 2-channels, 24/32-bit each channel, total buffer is 360*8 = 2880 bytes
-    // if 1-channels, 16-bit at one channel, total buffer is 360*2 = 720 bytes
-
     i2s_config_t i2s_config = {
         .mode = I2S_MODE_MASTER | I2S_MODE_TX, // Only TX
         .sample_rate = SAMPLE_RATE,
         .bits_per_sample = 16,
         .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT, // mono
-        //        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           //2-channels
         .communication_format = I2S_COMM_FORMAT_STAND_I2S, // I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB,
         .dma_buf_count = BUFFER_NUM,
         //.dma_buf_len = SAMPLE_PER_CYCLE, // one cycle per one buffer
@@ -137,6 +157,19 @@ void app_main()
     // setup_waves();
     // uint16_t c = 0;
 
+    check_efuse();
+
+    if (unit == ADC_UNIT_1) {
+        adc1_config_width(width);
+        adc1_config_channel_atten(ADC1_POT, ADC_ATTEN);
+    } else {
+        adc2_config_channel_atten((adc2_channel_t)ADC1_POT, ADC_ATTEN);
+    }
+
+    // Characterize ADC
+    adc_chars = calloc(1, sizeof(esp_adc_cal_characteristics_t));
+    esp_adc_cal_value_t val_type = esp_adc_cal_characterize(unit, ADC_ATTEN, width, DEFAULT_VREF, adc_chars);
+
     BaseType_t xReturned;
     TaskHandle_t xHandle = NULL;
     i2s_setup();
@@ -145,6 +178,29 @@ void app_main()
 
     uint8_t counter = 0;
 
+    while (1) {
+        uint32_t adc_reading = 0;
+        for (int i = 0; i < NR_OF_SAMPLES; i++)
+            adc_reading += adc1_get_raw((adc1_channel_t)ADC1_POT);
+
+        adc_reading /= NR_OF_SAMPLES;
+        adc_reading >>= 5;
+        speed = (uint32_t)((adc_reading / 0.127) + 40);
+        // vTaskDelay(100 / portTICK_RATE_MS);
+
+        if (counter >= SEQ_LENGTH)
+            counter = 0;
+
+        int cycle = (int)((double)SAMPLE_RATE / (double)sequence[counter]);
+        temp_wavesize = cycle;
+
+        vTaskDelay(speed / portTICK_RATE_MS);
+        counter++;
+    }
+
+    // uint8_t counter = 0;
+
+    /*
     while (1) {
         if (counter >= SEQ_LENGTH)
             counter = 0;
@@ -155,16 +211,5 @@ void app_main()
         vTaskDelay(1000 / portTICK_RATE_MS);
         counter++;
     }
-
-    /*
-        if (xReturned == pdPASS)
-            vTaskDelete(xHandle);
-            */
-
-    /*
-        while (1) {
-            printf("executed every 5 secs\n");
-            vTaskDelay(5000/portTICK_RATE_MS);
-        }
     */
 }
