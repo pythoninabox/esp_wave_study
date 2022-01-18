@@ -8,7 +8,7 @@
 #define SAMPLE_RATE (48000)
 #define I2S_NUM (0)
 #define WAVE_FREQ_HZ (184)
-#define MAXVOL_INT (8000)
+#define MAXVOL_INT (12000)
 #define PI (3.14159265)
 #define I2S_BCK_IO (GPIO_NUM_5) //(GPIO_NUM_26)
 #define I2S_WS_IO (GPIO_NUM_25) //(GPIO_NUM_25)
@@ -18,7 +18,7 @@
 #define SAMPLE_PER_CYCLE (SAMPLE_RATE / WAVE_FREQ_HZ)
 #define BUFFER_NUM (8)
 #define DELAY_MS (5)
-#define SEQ_LENGTH (4)
+#define SEQ_LENGTH (1)
 
 int midi_to_cycle(int m);
 
@@ -26,7 +26,7 @@ int midi_to_cycle(int m);
 static uint16_t* samples_data = NULL;
 static int wavesize = SAMPLE_PER_CYCLE;
 static int temp_wavesize = 0;
-static int sequence[] = { 100, 2000, 3000, 6000 };
+static int sequence[] = { 50 };
 
 size_t i2s_bytes_write = 0;
 // int sequence[4] = { 48, 60, 72, 84 };
@@ -39,13 +39,24 @@ void setup_waves(int d)
     uint16_t* sine = (uint16_t*)malloc(d * sizeof(uint16_t*));
 
     double sin_float;
-    for (int i = 0; i < d; i++) {
-        // sin_float = sin(2.0 * (double)i * PI / (double)d);
-        double x = (double)i / (double)d;
+    int discriminant = d / 2;
+    int counter = d - 1;
 
-        // sine[i] = (uint16_t)((sin_float + 1) * MAXVOL_INT);
-        sine[i] = (uint16_t)(x * MAXVOL_INT);
+    for (int i = 0; i < d; i++) {
+        sin_float = sin(2.0 * (double)i * PI / (double)d);
+        // double x = (double)i / (double)d;
+
+        sine[i] = (uint16_t)((sin_float + 1) * MAXVOL_INT);
+        // sine[i] = (uint16_t)(x * MAXVOL_INT);
     }
+
+    /*
+     while (counter > -1) {
+         float value = counter > discriminant ? 0.5 : -0.5;
+         sine[counter] = (uint16_t)(value * MAXVOL_INT);
+         counter--;
+     }
+     */
 
     wavesize = d;
     samples_data = sine;
