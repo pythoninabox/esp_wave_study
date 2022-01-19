@@ -10,7 +10,7 @@
 #define SAMPLE_RATE (48000)
 #define I2S_NUM (0)
 #define WAVE_FREQ_HZ (184)
-#define MAXVOL_INT (12000)
+#define MAXVOL_INT (6000)
 #define PI (3.14159265)
 #define I2S_BCK_IO (GPIO_NUM_5)
 #define I2S_WS_IO (GPIO_NUM_25)
@@ -18,7 +18,7 @@
 #define I2S_DI_IO (-1)
 
 #define SAMPLE_PER_CYCLE (SAMPLE_RATE / WAVE_FREQ_HZ)
-#define BUFFER_NUM (8)
+#define BUFFER_NUM (12)
 #define DELAY_MS (5)
 #define SEQ_LENGTH (3)
 
@@ -37,7 +37,7 @@ int midi_to_cycle(int m);
 static uint16_t* samples_data = NULL;
 static int wavesize = SAMPLE_PER_CYCLE;
 static int temp_wavesize = 0;
-static int sequence[] = { 50, 200, 3000 };
+static int sequence[] = { 80, 200, 3000 };
 static int speed = 1000;
 
 size_t i2s_bytes_write = 0;
@@ -67,15 +67,18 @@ void setup_waves(int d)
     uint16_t* sine = (uint16_t*)malloc(d * sizeof(uint16_t*));
 
     double sin_float;
-    int discriminant = d / 2;
-    int counter = d - 1;
 
     for (int i = 0; i < d; i++) {
-        sin_float = sin(2.0 * (double)i * PI / (double)d);
-        // double x = (double)i / (double)d;
+        // sin_float = sin(2.0 * (double)i * PI / (double)d);
+        double val = (double)i / (double)d;
 
-        sine[i] = (uint16_t)((sin_float + 1) * MAXVOL_INT);
-        // sine[i] = (uint16_t)(x * MAXVOL_INT);
+        if (i < d / 2)
+            sin_float = val;
+        else
+            sin_float = 1 - val;
+
+        // sine[i] = (uint16_t)((sin_float + 1) * MAXVOL_INT);
+        sine[i] = (uint16_t)(sin_float * MAXVOL_INT);
     }
 
     /*
@@ -179,6 +182,18 @@ void app_main()
     uint8_t counter = 0;
 
     while (1) {
+        if (counter >= SEQ_LENGTH)
+            counter = 0;
+
+        int cycle = (int)((double)SAMPLE_RATE / (double)sequence[counter]);
+        temp_wavesize = cycle;
+
+        vTaskDelay(125 / portTICK_RATE_MS);
+        counter++;
+    }
+
+    /*
+    while (1) {
         uint32_t adc_reading = 0;
         for (int i = 0; i < NR_OF_SAMPLES; i++)
             adc_reading += adc1_get_raw((adc1_channel_t)ADC1_POT);
@@ -197,6 +212,7 @@ void app_main()
         vTaskDelay(speed / portTICK_RATE_MS);
         counter++;
     }
+    */
 
     // uint8_t counter = 0;
 
